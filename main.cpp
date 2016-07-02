@@ -1,28 +1,33 @@
 #include <stdio.h>
 #include <opencv2/opencv.hpp>
+#include <time.h>
 
 using namespace cv;
+using namespace std;
 
 int main(int argc, char** argv )
 {
-	if ( argc != 2 )
-	{
-		printf("usage: DisplayImage.out <Image_Path>\n");
+	Mat frame;
+	time_t start;
+	time_t end;
+	double seconds;
+	VideoCapture cap(0);	// open the default camera
+	if(!cap.isOpened()) {	// check if we succeeded
 		return -1;
 	}
+	cap.set(CV_CAP_PROP_FPS, 150);
 
-	Mat image;
-	image = imread( argv[1], 1 );
-
-	if ( !image.data )
+	time(&start);
+	for(int i = 0;i<100;i++)
 	{
-		printf("No image data \n");
-		return -1;
+		cap >> frame; // get a new frame from camera
+		imshow("edges", frame);
 	}
-	namedWindow("Display Image", WINDOW_AUTOSIZE );
-	imshow("Display Image", image);
+	time(&end);
+	seconds = difftime(end, start);
+	cout << "Tempo para 100: " << seconds << endl;
+	cout << "Framerate: " << 100/seconds << endl;
 
-	waitKey(0);
-
+	cap.release();
 	return 0;
 }
