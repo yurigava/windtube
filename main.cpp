@@ -15,18 +15,26 @@ int main(int argc, char** argv )
 	if(!cap.isOpened()) {	// check if we succeeded
 		return -1;
 	}
-	cap.set(CV_CAP_PROP_FPS, 150);
+	double dWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH); //get the width of frames of the video
+	double dHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT); //get the height of frames of the video
+	cout << "Frame size : " << dWidth << " x " << dHeight << endl;
 
-	time(&start);
+	namedWindow("MyImage", WINDOW_AUTOSIZE);
 	for(int i = 0;i<100;i++)
 	{
-		cap >> frame; // get a new frame from camera
-		imshow("edges", frame);
+		bool bSuccess = cap.read(frame); // get a new frame from camera
+		if (!bSuccess) //if not success, break loop
+		{
+			cout << "Cannot read a frame from video stream" << endl;
+			break;
+		}
+		imshow("MyImage", frame);
+		if (waitKey(10) == 27) //wait for 'esc' key press for 30ms. If 'esc' key is pressed, break loop
+		{
+			cout << "esc key is pressed by user" << endl;
+			break;
+		}
 	}
-	time(&end);
-	seconds = difftime(end, start);
-	cout << "Tempo para 100: " << seconds << endl;
-	cout << "Framerate: " << 100/seconds << endl;
 
 	cap.release();
 	return 0;
