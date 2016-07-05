@@ -1,41 +1,173 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <opencv2/opencv.hpp>
-#include <time.h>
+#include <mqueue.h>
+#include <unistd.h>
+
+#define qnSetPoint  "/set_point"
+#define qnReading  "/reading"
+#define qnControlSignal  "/controlSignal"
 
 using namespace cv;
 using namespace std;
 
-int main(int argc, char** argv )
+
+void *procImage(void *arg)
 {
 	Mat frame;
-	time_t start;
-	time_t end;
-	double seconds;
-	VideoCapture cap(0);	// open the default camera
-	if(!cap.isOpened()) {	// check if we succeeded
-		return -1;
-	}
-	double dWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH); //get the width of frames of the video
-	double dHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT); //get the height of frames of the video
-	cout << "Frame size : " << dWidth << " x " << dHeight << endl;
+	mqd_t  qReading;         // descritores das filas
+	int    msgReading;	// mensagens a enviar ou receber
 
-	namedWindow("MyImage", WINDOW_AUTOSIZE);
-	for(int i = 0;i<100;i++)
+	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
 	{
-		bool bSuccess = cap.read(frame); // get a new frame from camera
-		if (!bSuccess) //if not success, break loop
-		{
-			cout << "Cannot read a frame from video stream" << endl;
-			break;
-		}
-		imshow("MyImage", frame);
-		if (waitKey(10) == 27) //wait for 'esc' key press for 30ms. If 'esc' key is pressed, break loop
-		{
-			cout << "esc key is pressed by user" << endl;
-			break;
-		}
+		perror ("mq_open Reading");
+		exit (1);
 	}
 
+	VideoCapture cap(0);
+
+	while(1)
+	{
+		bool bSuccess = cap.read(frame);
+		if (!bSuccess)
+		{
+			break;
+		}
+
+		//Acha posição da bolinha
+
+		msgReading = 0;
+		mq_send(qReading, (char*) &msgReading, sizeof(int), 0);
+	}
 	cap.release();
+}
+
+void *control(void *arg)
+{
+	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
+	int    msgSetPoint, msgReading, msgControlSignal;	// mensagens a enviar ou receber
+
+	//Cria as filas a serem usadas pela Thread
+	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
+	{
+		perror ("mq_open Reading");
+		exit (1);
+	}
+
+	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
+	{
+		perror ("mq_open SetPoint");
+		exit (1);
+	}
+
+	if((qControlSignal= mq_open(qnControlSignal, O_RDWR)) < 0)
+	{
+		perror ("mq_open ControlSignal");
+		exit (1);
+	}
+
+	while(1)
+	{
+		mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);//Verifica se recebeu setpoint
+		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
+		//Controle
+		msgControlSignal = 0;
+		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+	}
+}
+
+void *PWM(void *arg)
+{
+	mqd_t qControlSignal;
+	int msgControlSignal;
+
+	if((qControlSignal= mq_open(qnControlSignal, O_RDWR)) < 0)
+	{
+		perror ("mq_open ControlSignal");
+		exit (1);
+	}
+
+	while(1)
+	{
+		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+		//Seta PWM para valor calculado na Thread de controle
+	}
+}
+
+void *setPoint(void *arg)
+{
+	mqd_t qSetPoint;
+	int msgSetPoint;
+
+	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
+	{
+		perror ("mq_open SetPoint");
+		exit (1);
+	}
+
+	while(1)
+	{
+		cout << "Digite a altura desejada da bolinha." << endl;
+		cin >> msgSetPoint;
+		mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
+	}
+}
+
+int main(int argc, char** argv )
+{
+	pthread_t tProcImage, tControl, tSetPoint, tPWM;
+	long status;
+	struct mq_attr attr, attrNoBlock;				// atributos das filas de mensagens
+
+	//Cria as filas a serem usadas pela Thread
+	attr.mq_maxmsg  = 4;			//capacidade para 4 mensagens
+	attr.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
+	attr.mq_flags   = 0;
+
+	if (mq_open(qnReading, O_RDWR|O_CREAT, 0666, &attr) < 0)
+	{
+		perror ("mq_open Reading");
+		exit (1);
+	}
+
+	if (mq_open(qnControlSignal, O_RDWR|O_CREAT, 0666, &attr) < 0)
+	{
+		perror ("mq_open ControlSignal");
+		exit (1);
+	}
+
+	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
+	attrNoBlock.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
+	attrNoBlock.mq_flags = O_NONBLOCK;
+	if (mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attr) < 0)
+	{
+		perror ("mq_open SetPoint");
+		exit (1);
+	}
+
+	//Cria as Threads
+	status = pthread_create(&tProcImage, NULL, procImage, NULL);
+	if (status) {
+		perror("pthread_create procImage");
+		exit (1) ;
+	}
+
+	status = pthread_create(&tControl, NULL, control, NULL);
+	if (status) {
+		perror("pthread_create procImage");
+		exit (1) ;
+	}
+
+	status = pthread_create(&tSetPoint, NULL, setPoint, NULL);
+	if (status) {
+		perror("pthread_create procImage");
+		exit (1) ;
+	}
+
+	status = pthread_create(&tPWM, NULL, PWM, NULL);
+	if (status) {
+		perror("pthread_create procImage");
+		exit (1) ;
+	}
 	return 0;
 }
