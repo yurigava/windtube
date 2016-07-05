@@ -4,8 +4,9 @@
 #include <mqueue.h>
 #include <unistd.h>
 
-#define qnSetPoint  "/set_point"
+#define qnSetPoint  "/setPoint"
 #define qnReading  "/reading"
+#define qnReadingShow  "/readingShow"
 #define qnControlSignal  "/controlSignal"
 
 using namespace cv;
@@ -15,12 +16,18 @@ using namespace std;
 void *procImage(void *arg)
 {
 	Mat frame;
-	mqd_t  qReading;         // descritores das filas
+	mqd_t  qReading, qReadingShow;         // descritores das filas
 	int    msgReading;	// mensagens a enviar ou receber
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
 	{
 		perror ("mq_open Reading");
+		exit (1);
+	}
+
+	if((qReadingShow = mq_open(qnReadingShow, O_RDWR)) < 0)
+	{
+		perror ("mq_open ReadingShow");
 		exit (1);
 	}
 
@@ -38,6 +45,7 @@ void *procImage(void *arg)
 
 		msgReading = 0;
 		mq_send(qReading, (char*) &msgReading, sizeof(int), 0);
+		mq_send(qReadingShow, (char*) &msgReading, sizeof(int), 0);
 	}
 	cap.release();
 }
@@ -96,12 +104,18 @@ void *PWM(void *arg)
 
 void *setPoint(void *arg)
 {
-	mqd_t qSetPoint;
-	int msgSetPoint;
+	mqd_t qSetPoint, qReadingShow;
+	int msgSetPoint, msgReadingShow;
 
 	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
 	{
 		perror ("mq_open SetPoint");
+		exit (1);
+	}
+
+	if((qReadingShow = mq_open(qnReadingShow, O_RDWR)) < 0)
+	{
+		perror ("mq_open Reading");
 		exit (1);
 	}
 
@@ -110,6 +124,8 @@ void *setPoint(void *arg)
 		cout << "Digite a altura desejada da bolinha." << endl;
 		cin >> msgSetPoint;
 		mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
+		mq_receive(qReadingShow, (char*) &msgReadingShow, sizeof(int), 0);//Verifica se recebeu setpoint
+		cout << "Valor Lido: " << msgReadingShow << endl;
 	}
 }
 
@@ -127,6 +143,12 @@ int main(int argc, char** argv )
 	if (mq_open(qnReading, O_RDWR|O_CREAT, 0666, &attr) < 0)
 	{
 		perror ("mq_open Reading");
+		exit (1);
+	}
+
+	if (mq_open(qnReadingShow, O_RDWR|O_CREAT, 0666, &attr) < 0)
+	{
+		perror ("mq_open ReadingShow");
 		exit (1);
 	}
 
@@ -169,5 +191,5 @@ int main(int argc, char** argv )
 		perror("pthread_create procImage");
 		exit (1) ;
 	}
-	return 0;
+	while(1);
 }
