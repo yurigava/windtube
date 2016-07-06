@@ -14,16 +14,17 @@ using namespace std;
 
 void *procImage(void *arg)
 {
-	Mat frame;
+	Mat frame, frameOpenClose;
 	mqd_t  qReading, qReadingShow;         // descritores das filas
+	Moments oMoments;
 	int    msgReading=0;	// mensagens a enviar ou receber
-	int iLowH = 110;
-	int iHighH = 130;
+	int iLowH = 35;
+	int iHighH = 45;
 
 	int iLowS = 100;
 	int iHighS = 255;
 
-	int iLowV = 100;
+	int iLowV = 180;
 	int iHighV = 255;
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -44,10 +45,18 @@ void *procImage(void *arg)
 		//Acha posição da bolinha
 		cvtColor(frame, frame, COLOR_BGR2HSV);
 		inRange(frame, Scalar(iLowH, iLowS, iLowV), Scalar(iHighH, iHighS, iHighV), frame);
+		//opening
+		erode(frame, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+		dilate(frame, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
 
-		imshow("MyImage", frame);
-		waitKey(10);
-		msgReading ^= 1;
+		//closing
+		dilate(frameOpenClose, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+		erode(frameOpenClose, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+
+		oMoments = moments(frameOpenClose);
+
+		msgReading = oMoments.m01/oMoments.m00;
+
 		mq_send(qReading, (char*) &msgReading, sizeof(int), 0);
 	}
 	cap.release();
