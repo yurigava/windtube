@@ -6,7 +6,6 @@
 
 #define qnSetPoint  "/setPoint"
 #define qnReading  "/reading"
-#define qnReadingShow  "/readingShow"
 #define qnControlSignal  "/controlSignal"
 
 using namespace cv;
@@ -17,7 +16,15 @@ void *procImage(void *arg)
 {
 	Mat frame;
 	mqd_t  qReading, qReadingShow;         // descritores das filas
-	int    msgReading;	// mensagens a enviar ou receber
+	int    msgReading=0;	// mensagens a enviar ou receber
+	int iLowH = 110;
+	int iHighH = 130;
+
+	int iLowS = 100;
+	int iHighS = 255;
+
+	int iLowV = 100;
+	int iHighV = 255;
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
 	{
@@ -25,27 +32,23 @@ void *procImage(void *arg)
 		exit (1);
 	}
 
-	if((qReadingShow = mq_open(qnReadingShow, O_RDWR)) < 0)
-	{
-		perror ("mq_open ReadingShow");
-		exit (1);
-	}
-
 	VideoCapture cap(0);
+	namedWindow("MyImage", WINDOW_AUTOSIZE);
 
 	while(1)
 	{
 		bool bSuccess = cap.read(frame);
 		if (!bSuccess)
-		{
-			break;
-		}
+			continue;
 
 		//Acha posição da bolinha
+		cvtColor(frame, frame, COLOR_BGR2HSV);
+		inRange(frame, Scalar(iLowH, iLowS, iLowV), Scalar(iHighH, iHighS, iHighV), frame);
 
-		msgReading = 0;
+		imshow("MyImage", frame);
+		waitKey(10);
+		msgReading ^= 1;
 		mq_send(qReading, (char*) &msgReading, sizeof(int), 0);
-		mq_send(qReadingShow, (char*) &msgReading, sizeof(int), 0);
 	}
 	cap.release();
 }
@@ -79,7 +82,7 @@ void *control(void *arg)
 		mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);//Verifica se recebeu setpoint
 		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
 		//Controle
-		msgControlSignal = 0;
+		msgControlSignal = msgReading;
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 	}
 }
@@ -98,6 +101,7 @@ void *PWM(void *arg)
 	while(1)
 	{
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+		cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
 	}
 }
@@ -105,7 +109,7 @@ void *PWM(void *arg)
 void *setPoint(void *arg)
 {
 	mqd_t qSetPoint, qReadingShow;
-	int msgSetPoint, msgReadingShow;
+	int msgSetPoint=0, msgReadingShow;
 
 	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
 	{
@@ -113,19 +117,11 @@ void *setPoint(void *arg)
 		exit (1);
 	}
 
-	if((qReadingShow = mq_open(qnReadingShow, O_RDWR)) < 0)
-	{
-		perror ("mq_open Reading");
-		exit (1);
-	}
-
 	while(1)
 	{
-		cout << "Digite a altura desejada da bolinha." << endl;
-		cin >> msgSetPoint;
+		//cout << "Digite a altura desejada da bolinha." << endl;
+		//cin >> msgSetPoint;
 		mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
-		mq_receive(qReadingShow, (char*) &msgReadingShow, sizeof(int), 0);//Verifica se recebeu setpoint
-		cout << "Valor Lido: " << msgReadingShow << endl;
 	}
 }
 
@@ -143,12 +139,6 @@ int main(int argc, char** argv )
 	if (mq_open(qnReading, O_RDWR|O_CREAT, 0666, &attr) < 0)
 	{
 		perror ("mq_open Reading");
-		exit (1);
-	}
-
-	if (mq_open(qnReadingShow, O_RDWR|O_CREAT, 0666, &attr) < 0)
-	{
-		perror ("mq_open ReadingShow");
 		exit (1);
 	}
 
