@@ -26,13 +26,13 @@ void *procImage(void *arg)
 	mqd_t  qReading, qReadingShow;         // descritores das filas
 	Moments oMoments;
 	int    msgReading=0;	// mensagens a enviar ou receber
-	int iLowH = 170;
-	int iHighH = 180;
+	int iLowH = 35;
+	int iHighH = 45;
 
 	int iLowS = 100;
 	int iHighS = 255;
 
-	int iLowV = 70;
+	int iLowV = 30;
 	int iHighV = 255;
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -72,8 +72,8 @@ void *procImage(void *arg)
 void *control(void *arg)
 {
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
-	int    msgSetPoint=15, msgReading, msgControlSignal;	// mensagens a enviar ou receber
-	double read=0, setPoint=15;
+	int    msgSetPoint=50, msgReading, msgControlSignal=40000;	// mensagens a enviar ou receber
+	double read=0, setPoint=50;
 	double kp, ki, kd, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
 	struct mq_attr attrNoBlock;				// atributos das filas de mensagens
 
@@ -98,13 +98,19 @@ void *control(void *arg)
 		perror ("mq_open ControlSignal");
 		exit (1);
 	}
-	kp=1;
-	ki=3;
-	kd=7;
+	kp=2.5;
+	ki=0.1;
+	kd=1;
 
 	b0=kp + ki*h1 + kd*h2;
 	b1=ki*h1 - kp - 2*kd*h2;
 	b2=kd*h2;
+
+	mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+	for(int i=0; i<=10; i++) {
+		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
+	}
+	msgControlSignal=13700;
 
 	while(1)
 	{
@@ -117,13 +123,13 @@ void *control(void *arg)
 		read = (480 - read)/4.8;
 		e = setPoint - read;
 		u = e*b0 + e1*b1 + e2*b2 + u1;
-		if(u < 0) {
-			u=0;
+		if(u < -200) {
+			u=-200;
 		}
-		else if(u > 1000) {
-			u=1000;
+		else if(u > 200) {
+			u=200;
 		}
-		msgControlSignal = (int) u;
+		msgControlSignal = (int) (u*20)+13700;
 		printf("u=%10.4f read=%4.4f e=%10.4f\n",u, read, e);
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		e2 = e1;
@@ -152,7 +158,7 @@ void *PWM(void *arg)
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		//cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
-		gpioHardwarePWM(18, 1000, msgControlSignal*1000);
+		gpioHardwarePWM(18, 1000, msgControlSignal*10);
 	}
 }
 
