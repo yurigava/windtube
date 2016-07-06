@@ -26,13 +26,13 @@ void *procImage(void *arg)
 	mqd_t  qReading, qReadingShow;         // descritores das filas
 	Moments oMoments;
 	int    msgReading=0;	// mensagens a enviar ou receber
-	int iLowH = 35;
-	int iHighH = 45;
+	int iLowH = 170;
+	int iHighH = 180;
 
 	int iLowS = 100;
 	int iHighS = 255;
 
-	int iLowV = 180;
+	int iLowV = 70;
 	int iHighV = 255;
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -72,9 +72,9 @@ void *procImage(void *arg)
 void *control(void *arg)
 {
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
-	int    msgSetPoint=30, msgReading, msgControlSignal;	// mensagens a enviar ou receber
-	double read=0, setPoint=30;
-	double kp=2, ki=3, kd=0.7, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
+	int    msgSetPoint=15, msgReading, msgControlSignal;	// mensagens a enviar ou receber
+	double read=0, setPoint=15;
+	double kp, ki, kd, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
 	struct mq_attr attrNoBlock;				// atributos das filas de mensagens
 
 	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
@@ -98,6 +98,9 @@ void *control(void *arg)
 		perror ("mq_open ControlSignal");
 		exit (1);
 	}
+	kp=1;
+	ki=3;
+	kd=7;
 
 	b0=kp + ki*h1 + kd*h2;
 	b1=ki*h1 - kp - 2*kd*h2;
