@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <mqueue.h>
 #include <unistd.h>
+#include <pigpio.h>
 
 #define qnSetPoint  "/setPoint"
 #define qnReading  "/reading"
@@ -65,7 +66,9 @@ void *procImage(void *arg)
 void *control(void *arg)
 {
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
-	int    msgSetPoint, msgReading, msgControlSignal;	// mensagens a enviar ou receber
+	int    msgSetPoint=50, msgReading, msgControlSignal;	// mensagens a enviar ou receber
+	double read=0, setPoint=50;
+	double kp=1, ki=1, kd=1, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.05, h2=10;
 
 	//Cria as filas a serem usadas pela Thread
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -86,13 +89,24 @@ void *control(void *arg)
 		exit (1);
 	}
 
+	b0=kp + ki*h1 + kd*h2;
+	b1=ki*h1 - kp - 2*kd*h2;
+	b2=kd*h2;
+
 	while(1)
 	{
 		mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);//Verifica se recebeu setpoint
 		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
 		//Controle
-		msgControlSignal = msgReading;
+		setPoint = msgSetPoint;
+		read = (double) (480 - msgReading)/4.8;
+		e = setPoint - read;
+		u = e*b0 + e1*b1 + e2*b2 + u1;
+		msgControlSignal = (int) u;
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+		e2 = e1;
+		e1 = e;
+		u1 = u;
 	}
 }
 
@@ -190,5 +204,10 @@ int main(int argc, char** argv )
 		perror("pthread_create procImage");
 		exit (1) ;
 	}
+
+	gpioInitialise();
+	gpioSetMode(17, PI_OUTPUT);
+	gpioPWM(17, 10);
+
 	while(1);
 }
