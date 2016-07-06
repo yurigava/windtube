@@ -9,9 +9,16 @@
 #define qnSetPoint  "/setPoint"
 #define qnReading  "/reading"
 #define qnControlSignal  "/controlSignal"
+#define qnInterruptSignal  "/controlSignal"
 
 using namespace cv;
 using namespace std;
+
+void sig_handler(int sig)
+{
+	gpioSetMode(18, PI_OUTPUT);
+	gpioTerminate();
+}
 
 void *procImage(void *arg)
 {
@@ -109,9 +116,6 @@ void *control(void *arg)
 		if(u < 0) {
 			u=0;
 		}
-		else if(u > 254) {
-			u=254;
-		}
 		msgControlSignal = (int) u;
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		e2 = e1;
@@ -132,14 +136,15 @@ void *PWM(void *arg)
 	}
 
 	gpioInitialise();
-	gpioSetMode(17, PI_OUTPUT);
+	gpioSetMode(18, PI_OUTPUT);
+	gpioSetSignalFunc(SIGINT, &sig_handler);
 
 	while(1)
 	{
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
-		gpioPWM(17, msgControlSignal);
+		gpioHardwarePWM(18, 1000, msgControlSignal*1000);
 	}
 }
 
@@ -168,6 +173,8 @@ int main(int argc, char** argv )
 	int msgStop;
 	long status;
 	struct mq_attr attr, attrNoBlock, attrSize1;				// atributos das filas de mensagens
+	mqd_t qInterruptSignal;
+
 
 	//Cria as filas a serem usadas pela Thread
 	attr.mq_maxmsg  = 4;			//capacidade para 4 mensagens
@@ -221,5 +228,5 @@ int main(int argc, char** argv )
 	}
 
 	pause();
-	gpioPWM(17, 0);
+	return 0;
 }
