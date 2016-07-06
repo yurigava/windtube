@@ -4,6 +4,7 @@
 #include <mqueue.h>
 #include <unistd.h>
 #include <pigpio.h>
+#include <signal.h>
 
 #define qnSetPoint  "/setPoint"
 #define qnReading  "/reading"
@@ -11,7 +12,6 @@
 
 using namespace cv;
 using namespace std;
-
 
 void *procImage(void *arg)
 {
@@ -65,9 +65,10 @@ void *procImage(void *arg)
 void *control(void *arg)
 {
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
-	int    msgSetPoint=50, msgReading, msgControlSignal;	// mensagens a enviar ou receber
-	double read=0, setPoint=50;
-	double kp=1, ki=1, kd=1, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.05, h2=10;
+	int    msgSetPoint=30, msgReading, msgControlSignal;	// mensagens a enviar ou receber
+	double read=0, setPoint=30;
+	double kp=1, ki=0.1, kd=0.5, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
+	struct mq_attr attrNoBlock;				// atributos das filas de mensagens
 
 	//Cria as filas a serem usadas pela Thread
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -76,7 +77,10 @@ void *control(void *arg)
 		exit (1);
 	}
 
-	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
+	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
+	attrNoBlock.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
+	attrNoBlock.mq_flags = O_NONBLOCK;
+	if (qSetPoint = mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attrNoBlock) < 0)
 	{
 		perror ("mq_open SetPoint");
 		exit (1);
@@ -94,13 +98,20 @@ void *control(void *arg)
 
 	while(1)
 	{
-		mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);//Verifica se recebeu setpoint
+		if(mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0) > -1) {
+			setPoint = msgSetPoint;
+		}//Verifica se recebeu setpoint
 		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
 		//Controle
-		setPoint = msgSetPoint;
 		read = (double) (480 - msgReading)/4.8;
 		e = setPoint - read;
 		u = e*b0 + e1*b1 + e2*b2 + u1;
+		if(u < 0) {
+			u=0;
+		}
+		else if(u > 254) {
+			u=254;
+		}
 		msgControlSignal = (int) u;
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		e2 = e1;
@@ -120,18 +131,22 @@ void *PWM(void *arg)
 		exit (1);
 	}
 
+	gpioInitialise();
+	gpioSetMode(17, PI_OUTPUT);
+
 	while(1)
 	{
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
+		gpioPWM(17, msgControlSignal);
 	}
 }
 
 void *setPoint(void *arg)
 {
-	mqd_t qSetPoint, qReadingShow;
-	int msgSetPoint=0, msgReadingShow;
+	mqd_t qSetPoint;
+	int msgSetPoint=50;
 
 	if((qSetPoint = mq_open(qnSetPoint, O_RDWR)) < 0)
 	{
@@ -143,15 +158,16 @@ void *setPoint(void *arg)
 	{
 		//cout << "Digite a altura desejada da bolinha." << endl;
 		//cin >> msgSetPoint;
-		mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
+		//mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
 	}
 }
 
 int main(int argc, char** argv )
 {
 	pthread_t tProcImage, tControl, tSetPoint, tPWM;
+	int msgStop;
 	long status;
-	struct mq_attr attr, attrNoBlock;				// atributos das filas de mensagens
+	struct mq_attr attr, attrNoBlock, attrSize1;				// atributos das filas de mensagens
 
 	//Cria as filas a serem usadas pela Thread
 	attr.mq_maxmsg  = 4;			//capacidade para 4 mensagens
@@ -173,7 +189,7 @@ int main(int argc, char** argv )
 	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
 	attrNoBlock.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
 	attrNoBlock.mq_flags = O_NONBLOCK;
-	if (mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attr) < 0)
+	if (mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attrNoBlock) < 0)
 	{
 		perror ("mq_open SetPoint");
 		exit (1);
@@ -204,9 +220,6 @@ int main(int argc, char** argv )
 		exit (1) ;
 	}
 
-	gpioInitialise();
-	gpioSetMode(17, PI_OUTPUT);
-	gpioPWM(17, 10);
-
-	while(1);
+	pause();
+	gpioPWM(17, 0);
 }
