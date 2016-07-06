@@ -35,7 +35,6 @@ void *procImage(void *arg)
 	}
 
 	VideoCapture cap(0);
-	namedWindow("MyImage", WINDOW_AUTOSIZE);
 
 	while(1)
 	{
