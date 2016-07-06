@@ -54,7 +54,7 @@ void *procImage(void *arg)
 		inRange(frame, Scalar(iLowH, iLowS, iLowV), Scalar(iHighH, iHighS, iHighV), frame);
 		//opening
 		erode(frame, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
-		dilate(frame, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+		dilate(frameOpenClose, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
 
 		//closing
 		dilate(frameOpenClose, frameOpenClose, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
@@ -74,15 +74,8 @@ void *control(void *arg)
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
 	int    msgSetPoint=30, msgReading, msgControlSignal;	// mensagens a enviar ou receber
 	double read=0, setPoint=30;
-	double kp=1, ki=0.1, kd=0.5, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
+	double kp=2, ki=3, kd=0.7, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
 	struct mq_attr attrNoBlock;				// atributos das filas de mensagens
-
-	//Cria as filas a serem usadas pela Thread
-	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
-	{
-		perror ("mq_open Reading");
-		exit (1);
-	}
 
 	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
 	attrNoBlock.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
@@ -90,6 +83,13 @@ void *control(void *arg)
 	if (qSetPoint = mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attrNoBlock) < 0)
 	{
 		perror ("mq_open SetPoint");
+		exit (1);
+	}
+
+	//Cria as filas a serem usadas pela Thread
+	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
+	{
+		perror ("mq_open Reading");
 		exit (1);
 	}
 
@@ -110,13 +110,18 @@ void *control(void *arg)
 		}//Verifica se recebeu setpoint
 		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
 		//Controle
-		read = (double) (480 - msgReading)/4.8;
+		read = (double) msgReading;
+		read = (480 - read)/4.8;
 		e = setPoint - read;
 		u = e*b0 + e1*b1 + e2*b2 + u1;
 		if(u < 0) {
 			u=0;
 		}
+		else if(u > 1000) {
+			u=1000;
+		}
 		msgControlSignal = (int) u;
+		printf("u=%10.4f read=%4.4f e=%10.4f\n",u, read, e);
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		e2 = e1;
 		e1 = e;
@@ -142,7 +147,7 @@ void *PWM(void *arg)
 	while(1)
 	{
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
-		cout << msgControlSignal << endl;
+		//cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
 		gpioHardwarePWM(18, 1000, msgControlSignal*1000);
 	}
