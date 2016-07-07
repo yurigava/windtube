@@ -14,6 +14,8 @@
 using namespace cv;
 using namespace std;
 
+int kp;
+
 void sig_handler(int sig)
 {
 	gpioSetMode(18, PI_OUTPUT);
@@ -29,10 +31,10 @@ void *procImage(void *arg)
 	int iLowH = 35;
 	int iHighH = 45;
 
-	int iLowS = 100;
+	int iLowS = 80;
 	int iHighS = 255;
 
-	int iLowV = 30;
+	int iLowV = 80;
 	int iHighV = 255;
 
 	if((qReading = mq_open(qnReading, O_RDWR)) < 0)
@@ -69,15 +71,23 @@ void *procImage(void *arg)
 	cap.release();
 }
 
+void recupAltura(mqd_t qControlSignal, mqd_t qReading) {
+	int msgControlSignal = 40000, msgReading;
+	mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
+	for(int i=0; i<=10; i++) {
+		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
+	}
+}
+
 void *control(void *arg)
 {
 	mqd_t  qSetPoint, qReading, qControlSignal;         // descritores das filas
 	int    msgSetPoint=50, msgReading, msgControlSignal=40000;	// mensagens a enviar ou receber
 	double read=0, setPoint=50;
-	double kp, ki, kd, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
+	double ki, kd, u=0, u1=0, e=0, e1=0, e2=0, b0, b1, b2, h1=0.08, h2=12;
 	struct mq_attr attrNoBlock;				// atributos das filas de mensagens
 
-	attrNoBlock.mq_maxmsg  = 4;			//capacidade para 4 mensagens
+	attrNoBlock.mq_maxmsg  = 2;			//capacidade para 4 mensagens
 	attrNoBlock.mq_msgsize = sizeof(int);	// tamanho de cada mensagem
 	attrNoBlock.mq_flags = O_NONBLOCK;
 	if (qSetPoint = mq_open(qnSetPoint, O_RDWR|O_CREAT, 0666, &attrNoBlock) < 0)
@@ -98,27 +108,31 @@ void *control(void *arg)
 		perror ("mq_open ControlSignal");
 		exit (1);
 	}
-	kp=2.5;
-	ki=0.1;
-	kd=1;
+	kp=1.5;
+	ki=0;
+	kd=0;
 
 	b0=kp + ki*h1 + kd*h2;
 	b1=ki*h1 - kp - 2*kd*h2;
 	b2=kd*h2;
 
-	mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
-	for(int i=0; i<=10; i++) {
-		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
-	}
+	recupAltura(qControlSignal, qReading);
 	msgControlSignal=13700;
 
 	while(1)
 	{
 		if(mq_receive(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0) > -1) {
-			setPoint = msgSetPoint;
+			//setPoint = msgSetPoint;
+			b0=kp + ki*h1 + kd*h2;
+			b1=ki*h1 - kp - 2*kd*h2;
+			//cout << "Veio" << endl;
 		}//Verifica se recebeu setpoint
 		mq_receive(qReading, (char*) &msgReading, sizeof(int), 0);	//Espera pela leitura da altura
 		//Controle
+		if(read < 3) {
+			recupAltura(qControlSignal, qReading);
+			msgControlSignal=13700;
+		}
 		read = (double) msgReading;
 		read = (480 - read)/4.8;
 		e = setPoint - read;
@@ -126,10 +140,10 @@ void *control(void *arg)
 		if(u < -200) {
 			u=-200;
 		}
-		else if(u > 200) {
-			u=200;
+		else if(u > 250) {
+			u=250;
 		}
-		msgControlSignal = (int) (u*20)+13700;
+		msgControlSignal = (int) (u*20)+13300;
 		printf("u=%10.4f read=%4.4f e=%10.4f\n",u, read, e);
 		mq_send(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
 		e2 = e1;
@@ -156,7 +170,6 @@ void *PWM(void *arg)
 	while(1)
 	{
 		mq_receive(qControlSignal, (char*) &msgControlSignal, sizeof(int), 0);
-		//cout << msgControlSignal << endl;
 		//Seta PWM para valor calculado na Thread de controle
 		gpioHardwarePWM(18, 1000, msgControlSignal*10);
 	}
@@ -176,7 +189,7 @@ void *setPoint(void *arg)
 	while(1)
 	{
 		//cout << "Digite a altura desejada da bolinha." << endl;
-		//cin >> msgSetPoint;
+		//kp = msgSetPoint;
 		//mq_send(qSetPoint, (char*) &msgSetPoint, sizeof(int), 0);
 	}
 }
